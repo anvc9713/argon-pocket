@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#090d16" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='42' fill='%230f172a'/%3E%3Cpath d='M108 24L44 108h44l-12 60 72-84h-44l12-60z' fill='%233b82f6'/%3E%3C/svg%3E" />
+  <title>Argon Pocket</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background-color: #090d16;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overscroll-behavior-y: none;
+    }
+    .msg-user {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: #ffffff;
+    }
+    .msg-bot {
+      background-color: #131b2e;
+      border: 1px solid #1e293b;
+      color: #e2e8f0;
+    }
+    pre {
+      background-color: #060911;
+      padding: 0.75rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      border: 1px solid #1e293b;
+      margin: 0.5rem 0;
+      font-size: 0.82rem;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+  </style>
+</head>
+<body class="h-[100dvh] flex flex-col overflow-hidden select-text">
+
+  <!-- TOP BAR -->
+  <header class="bg-[#0f172a]/90 backdrop-blur border-b border-slate-800 px-3 py-2.5 flex items-center justify-between gap-2 shrink-0">
+    <div class="flex items-center gap-2 min-w-0">
+      <!-- Botón Historial de Chats (Drawer) -->
+      <button onclick="toggleSidebar()" title="Historial de conversaciones" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
+        <span>☰</span>
+        <span id="chat-count-badge" class="text-[10px] font-mono text-blue-400">1</span>
+      </button>
+
+      <!-- Botón + Nuevo Chat rápido -->
+      <button onclick="createNewSession()" title="Nueva conversación" class="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/40 text-xs px-2 py-1.5 rounded-lg font-bold shrink-0">
+        ＋
+      </button>
+
+      <select id="model-select" class="bg-slate-900 border border-slate-700 text-slate-100 text-xs sm:text-sm rounded-lg px-2 py-1.5 font-medium focus:outline-none focus:border-blue-500 truncate">
+        <optgroup label="Vertex AI ($300 GCP Credit)">
+          <option value="vertex:gemini-4-argon">⚡ Gemini 4 Argon (Vertex)</option>
+          <option value="vertex:gemini-3.1-pro-preview">🧠 Gemini 3.1 Pro (Vertex)</option>
+          <option value="vertex:gemini-3.5-flash">🚀 Gemini 3.5 Flash (Vertex)</option>
+        </optgroup>
+        <optgroup label="NanoGPT API">
+          <option value="nanogpt:deepseek/deepseek-v4.1-flash-1017:caching">💨 DeepSeek V4.1 Flash:cache</option>
+          <option value="nanogpt:anthropic/claude-sonnet-5.5">🎭 Claude Sonnet 5.5 (NanoGPT)</option>
+          <option value="nanogpt:google/gemini-4-argon">⚡ Gemini 4 Argon (NanoGPT)</option>
+          <option value="nanogpt:z-ai/glm-5.3">📘 GLM 5.3 (NanoGPT)</option>
+        </optgroup>
+      </select>
+    </div>
+
+    <div class="flex items-center gap-1.5 shrink-0">
+      <!-- Interruptor Doble: Ahorro vs Max -->
+      <div class="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-700 text-xs font-semibold">
+        <button id="btn-mode-eco" onclick="setEcoMode(true)" class="px-2.5 py-1 rounded-md transition flex items-center gap-1">
+          <span>🌱</span><span>Ahorro</span>
+        </button>
+        <button id="btn-mode-deep" onclick="setEcoMode(false)" class="px-2.5 py-1 rounded-md transition flex items-center gap-1">
+          <span>🔥</span><span>Max</span>
+        </button>
+      </div>
+
+      <!-- Comprimir (Fénix) -->
+      <button onclick="compressThread()" title="Comprimir historial en resumen corto (Fénix)" class="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 text-xs px-2.5 py-1.5 rounded-lg">
+        🔥
+      </button>
+
+      <!-- Limpiar chat -->
+      <button onclick="clearChat()" title="Limpiar conversación" class="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs px-2.5 py-1.5 rounded-lg">
+        🗑️
+      </button>
+
+      <!-- Configurar llaves -->
+      <button onclick="toggleSettings()" title="Configurar credenciales" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs px-2.5 py-1.5 rounded-lg">
+        🔑
+      </button>
+    </div>
+  </header>
+
+  <!-- SUB-BAR: Token Meter & Context Indicator -->
+  <div class="bg-[#0b1120] border-b border-slate-800/80 px-3 py-1 flex items-center justify-between text-[11px] text-slate-400 shrink-0">
+    <span id="context-info">Modo Ahorro: envía últimos 2 turnos (0 tools, 0 bloat)</span>
+    <span id="token-meter" class="font-mono text-emerald-400">~0 tok</span>
+  </div>
+
+  <!-- CHAT MESSAGES -->
+  <main id="chat-box" class="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
+    <div id="empty-state" class="text-center text-slate-500 my-12 space-y-2 max-w-md mx-auto">
+      <div class="text-2xl">⚡</div>
+      <p class="text-sm font-semibold text-slate-300">Argon Pocket — Cero Servidores</p>
+      <p class="text-xs leading-relaxed">
+        Tus credenciales viven solo en el <code class="text-slate-300">localStorage</code> de este dispositivo.
+        El token OAuth2 de Vertex AI se firma directamente en tu navegador con <code class="text-slate-300">WebCrypto RS256</code>.
+      </p>
+      <button onclick="toggleSettings()" class="mt-2 inline-block text-xs bg-blue-600/20 text-blue-400 border border-blue-500/40 px-3 py-1.5 rounded-lg">
+        🔑 Configurar vertex-sa.json o NanoGPT
+      </button>
+    </div>
+  </main>
+
+  <!-- INPUT BAR -->
+  <footer class="bg-[#0f172a] border-t border-slate-800 p-2.5 shrink-0">
+    <form id="chat-form" onsubmit="handleSend(event)" class="flex items-end gap-2 max-w-4xl mx-auto">
+      <textarea
+        id="user-input"
+        rows="1"
+        placeholder="Escribe tu mensaje... (0 tokens de herramientas)"
+        oninput="autoResize(this); updateTokenEstimate();"
+        onkeydown="handleKeydown(event)"
+        class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none max-h-36"
+      ></textarea>
+      <button
+        type="submit"
+        id="send-btn"
+        class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition shrink-0"
+      >
+        Enviar
+      </button>
+    </form>
+  </footer>
+
+  <!-- SIDEBAR DRAWER (Historial de Chats) -->
+  <div id="sidebar-backdrop" onclick="toggleSidebar()" class="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 hidden"></div>
+  <aside id="sidebar-drawer" class="fixed top-0 left-0 bottom-0 w-72 sm:w-80 bg-[#0b1120] border-r border-slate-800 z-50 transform -translate-x-full transition-transform duration-200 flex flex-col">
+    <div class="p-3.5 border-b border-slate-800 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="text-base">💬</span>
+        <h2 class="text-sm font-bold text-slate-100">Tus Conversaciones</h2>
+      </div>
+      <button onclick="toggleSidebar()" class="text-slate-400 hover:text-white text-base px-2">✕</button>
+    </div>
+
+    <div class="p-2.5 border-b border-slate-800/80">
+      <button onclick="createNewSession(); toggleSidebar();" class="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow">
+        <span>＋</span><span>Nueva Conversación</span>
+      </button>
+    </div>
+
+    <div id="sessions-list" class="flex-1 overflow-y-auto p-2 space-y-1.5"></div>
+
+    <div class="p-2.5 border-t border-slate-800 text-[11px] text-slate-500 flex items-center justify-between">
+      <span>Guardado en este dispositivo</span>
+      <button onclick="exportAllChats()" class="text-blue-400 hover:underline">📥 Exportar JSON</button>
+    </div>
+  </aside>
+
+  <!-- SETTINGS MODAL (Local Vault) -->
+  <div id="settings-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#0f172a] border border-slate-700 rounded-2xl w-full max-w-lg p-5 space-y-4 max-h-[90dvh] overflow-y-auto shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h2 class="text-base font-bold text-slate-100">🔑 Bóveda Local del Dispositivo</h2>
+          <p class="text-xs text-slate-400">Se guarda únicamente en el navegador de tu teléfono/PC.</p>
+        </div>
+        <button onclick="toggleSettings()" class="text-slate-400 hover:text-white text-lg px-2">✕</button>
+      </div>
+
+      <!-- Vertex Service Account JSON -->
+      <div class="space-y-1.5">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-semibold text-slate-300">1. Google Cloud <code class="text-blue-400">vertex-sa.json</code> (Contenido completo)</label>
+          <label class="text-xs text-blue-400 cursor-pointer hover:underline">
+            📂 Cargar archivo .json
+            <input type="file" accept=".json,application/json" onchange="loadJsonFile(event)" class="hidden" />
+          </label>
+        </div>
+        <textarea
+          id="sa-json-input"
+          rows="5"
+          placeholder='{"type": "service_account", "project_id": "hada-25544", "private_key": "-----BEGIN PRIVATE KEY-----\n...", "client_email": "..."}'
+          class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs font-mono text-emerald-300 focus:outline-none focus:border-blue-500"
+        ></textarea>
+      </div>
+
+      <!-- Vertex Location & Custom Project Override -->
+      <div>
+        <label class="text-[11px] text-slate-400 block mb-1">Región Vertex (default: global)</label>
+        <input id="vertex-location" type="text" value="global" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono" />
+      </div>
+
+      <!-- Optional System Prompt -->
+      <div class="space-y-1">
+        <label class="text-xs font-semibold text-slate-300">2. System Prompt (Opcional — déjalo vacío para gasto mínimo)</label>
+        <textarea
+          id="sys-prompt-input"
+          rows="2"
+          placeholder="Ej: Responde de forma concisa en español."
+          class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+        ></textarea>
+      </div>
+
+      <!-- NanoGPT Key -->
+      <div class="space-y-1">
+        <label class="text-xs font-semibold text-slate-300">3. NanoGPT API Key (Opcional)</label>
+        <input
+          id="nanogpt-key-input"
+          type="password"
+          placeholder="sk-..."
+          class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-blue-500"
+        />
+      </div>
+
+      <div id="settings-status" class="text-xs text-slate-400 hidden"></div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+        <button onclick="testVertexAuth()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 text-xs font-medium px-3 py-2 rounded-xl">
+          🧪 Probar Token Vertex
+        </button>
+        <button onclick="saveSettings()" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-4 py-2 rounded-xl">
+          Guardar en este dispositivo
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // ESTADO Y CONFIGURACIÓN LOCAL
+    // =========================================================================
+    const STORAGE_KEYS = {
+      SA_JSON: 'argon_pocket_sa_json',
+      VERTEX_LOC: 'argon_pocket_vertex_loc',
+      SYS_PROMPT: 'argon_pocket_sys_prompt',
+      NANOGPT_KEY: 'argon_pocket_nanogpt_key',
+      ECO_MODE: 'argon_pocket_eco_mode',
+      MODEL: 'argon_pocket_model',
+      HISTORY: 'argon_pocket_history',
+      SESSIONS: 'argon_pocket_sessions',
+      CURRENT_SESSION_ID: 'argon_pocket_current_session_id'
+    };
+
+    let sessions = []; // [{ id, title, updatedAt, messages: [] }]
+    let currentSessionId = null;
+    let messages = []; // referencia a los mensajes de la sesión activa
+    let ecoMode = true;
+    let cachedVertexToken = null;
+    let cachedVertexExpiry = 0;
+
+    function initApp() {
+      const savedSa = localStorage.getItem(STORAGE_KEYS.SA_JSON) || '';
+      const savedLoc = localStorage.getItem(STORAGE_KEYS.VERTEX_LOC) || 'global';
+      const savedSys = localStorage.getItem(STORAGE_KEYS.SYS_PROMPT) || '';
+      const savedNano = localStorage.getItem(STORAGE_KEYS.NANOGPT_KEY) || '';
+      const savedEco = localStorage.getItem(STORAGE_KEYS.ECO_MODE);
+      const savedModel = localStorage.getItem(STORAGE_KEYS.MODEL);
+
+      document.getElementById('sa-json-input').value = savedSa;
+      document.getElementById('vertex-location').value = savedLoc;
+      document.getElementById('sys-prompt-input').value = savedSys;
+      document.getElementById('nanogpt-key-input').value = savedNano;
+
+      if (savedEco !== null) ecoMode = savedEco === 'true';
+      if (savedModel) document.getElementById('model-select').value = savedModel;
+
+      // Cargar sesiones múltiples (o migrar historial anterior si existía)
+      const rawSessions = localStorage.getItem(STORAGE_KEYS.SESSIONS);
+      if (rawSessions) {
+        try { sessions = JSON.parse(rawSessions) || []; } catch { sessions = []; }
+      }
+
+      if (sessions.length === 0) {
+        let legacyMessages = [];
+        const savedHistory = localStorage.getItem(STORAGE_KEYS.HISTORY);
+        if (savedHistory) {
+          try { legacyMessages = JSON.parse(savedHistory) || []; } catch { legacyMessages = []; }
+        }
+        const firstId = 'chat_' + Date.now();
+        const firstTitle = legacyMessages[0]?.content
+          ? legacyMessages[0].content.slice(0, 38)
+          : 'Nueva conversación';
+        sessions = [{
+          id: firstId,
+          title: firstTitle,
+          updatedAt: Date.now(),
+          messages: legacyMessages
+        }];
+        currentSessionId = firstId;
+      } else {
+        const savedCurId = localStorage.getItem(STORAGE_KEYS.CURRENT_SESSION_ID);
+        const found = sessions.find(s => s.id === savedCurId);
+        currentSessionId = found ? found.id : sessions[0].id;
+      }
+
+      syncActiveMessages();
+
+      document.getElementById('model-select').addEventListener('change', (e) => {
+        localStorage.setItem(STORAGE_KEYS.MODEL, e.target.value);
+      });
+
+      renderEcoBadge();
+      renderMessages();
+      renderSessionsList();
+      updateTokenEstimate();
+    }
+
+    // =========================================================================
+    // CRIPTOGRAFÍA WEBCRYPTO RS256 PARA VERTEX AI (CERO SERVIDORES)
+    // =========================================================================
+    function base64UrlEncodeString(str) {
+      const bytes = new TextEncoder().encode(str);
+      return base64UrlEncodeBytes(bytes);
+    }
+
+    function base64UrlEncodeBytes(bytes) {
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    function pemToArrayBuffer(pem) {
+      const b64 = pem
+        .replace(/-----BEGIN PRIVATE KEY-----/g, '')
+        .replace(/-----END PRIVATE KEY-----/g, '')
+        .replace(/\s+/g, '');
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+
+    async function getVertexAccessToken() {
+      const nowMs = Date.now();
+      if (cachedVertexToken && nowMs < cachedVertexExpiry - 60000) {
+        return cachedVertexToken;
+      }
+
+      const rawSa = localStorage.getItem(STORAGE_KEYS.SA_JSON);
+      if (!rawSa) {
+        throw new Error('Falta configurar vertex-sa.json en el botón 🔑.');
+      }
+
+      let sa;
+      try {
+        sa = JSON.parse(rawSa);
+      } catch {
+        throw new Error('El contenido de vertex-sa.json no es un JSON válido.');
+      }
+
+      if (!sa.client_email || !sa.private_key) {
+        throw new Error('El JSON no contiene client_email o private_key.');
+      }
+
+      const tokenUri = sa.token_uri || 'https://oauth2.googleapis.com/token';
+      const nowSec = Math.floor(nowMs / 1000);
+
+      const header = { alg: 'RS256', typ: 'JWT' };
+      if (sa.private_key_id) header.kid = sa.private_key_id;
+
+      const claimSet = {
+        iss: sa.client_email,
+        sub: sa.client_email,
+        scope: 'https://www.googleapis.com/auth/cloud-platform',
+        aud: tokenUri,
+        iat: nowSec,
+        exp: nowSec + 3600
+      };
+
+      const unsignedJwt = `${base64UrlEncodeString(JSON.stringify(header))}.${base64UrlEncodeString(JSON.stringify(claimSet))}`;
+      const keyData = pemToArrayBuffer(sa.private_key);
+
+      const cryptoKey = await window.crypto.subtle.importKey(
+        'pkcs8',
+        keyData,
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+
+      const signatureBuffer = await window.crypto.subtle.sign(
+        'RSASSA-PKCS1-v1_5',
+        cryptoKey,
+        new TextEncoder().encode(unsignedJwt)
+      );
+
+      const signedJwt = `${unsignedJwt}.${base64UrlEncodeBytes(new Uint8Array(signatureBuffer))}`;
+
+      const res = await fetch(tokenUri, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${encodeURIComponent(signedJwt)}`
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.access_token) {
+        throw new Error(`Error OAuth Google (${res.status}): ${data.error_description || data.error || JSON.stringify(data)}`);
+      }
+
+      cachedVertexToken = data.access_token;
+      cachedVertexExpiry = nowMs + ((data.expires_in || 3600) * 1000);
+      return cachedVertexToken;
+    }
+
+    // =========================================================================
+    // LLAMADAS A VERTEX AI Y NANOGPT
+    // =========================================================================
+    function getContextSlice() {
+      // En Modo Ahorro envía solo los últimos 4 mensajes (2 turnos) + el actual
+      if (ecoMode && messages.length > 5) {
+        return messages.slice(-5);
+      }
+      return messages;
+    }
+
+    async function callVertexGemini(modelId, contextMessages) {
+      const auth = await getVertexAccessToken();
+      const sa = JSON.parse(localStorage.getItem(STORAGE_KEYS.SA_JSON));
+      const projectId = sa.project_id || 'hada-25544';
+      const location = (localStorage.getItem(STORAGE_KEYS.VERTEX_LOC) || 'global').trim();
+      const maxOutputTokens = parseInt(localStorage.getItem(STORAGE_KEYS.MAX_TOKENS) || '4096', 10);
+      const sysPrompt = (localStorage.getItem(STORAGE_KEYS.SYS_PROMPT) || '').trim();
+
+      const host = location === 'global'
+        ? 'https://aiplatform.googleapis.com'
+        : `https://${location}-aiplatform.googleapis.com`;
+
+      const url = `${host}/v1/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(modelId)}:generateContent`;
+
+      const contents = contextMessages.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      }));
+
+      const payload = {
+        contents,
+        generationConfig: {
+          maxOutputTokens: ecoMode ? 4096 : 16384
+        }
+      };
+
+      if (sysPrompt) {
+        payload.systemInstruction = { parts: [{ text: sysPrompt }] };
+      }
+
+      const tokenStr = typeof auth === 'string' ? auth : auth.token;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${tokenStr}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        const errMsg = data?.error?.message || JSON.stringify(data);
+        throw new Error(`Vertex AI (${res.status}): ${errMsg}`);
+      }
+
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      const visibleParts = parts.filter(p => !p.thought);
+      const text = (visibleParts.length > 0 ? visibleParts : parts).map(p => p.text || '').join('');
+      const usage = data?.usageMetadata;
+      const thoughtTok = usage?.thoughtsTokenCount ? ` (${usage.thoughtsTokenCount} think)` : '';
+      return {
+        text: text || `(Sin texto — finishReason: ${data?.candidates?.[0]?.finishReason || 'unknown'})`,
+        tokens: usage ? `${usage.promptTokenCount || 0} in / ${(usage.candidatesTokenCount || 0)}${thoughtTok} out · total ${usage.totalTokenCount || 0}` : null
+      };
+    }
+
+    async function callNanoGpt(modelId, contextMessages) {
+      const apiKey = (localStorage.getItem(STORAGE_KEYS.NANOGPT_KEY) || '').trim();
+      if (!apiKey) {
+        throw new Error('Falta configurar tu NanoGPT API Key en el botón 🔑.');
+      }
+
+      const sysPrompt = (localStorage.getItem(STORAGE_KEYS.SYS_PROMPT) || '').trim();
+      const maxTokens = ecoMode ? 4096 : 16384;
+
+      const apiMessages = [];
+      if (sysPrompt) apiMessages.push({ role: 'system', content: sysPrompt });
+      for (const m of contextMessages) {
+        apiMessages.push({ role: m.role, content: m.content });
+      }
+
+      const res = await fetch('https://api.nano-gpt.com/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: modelId,
+          messages: apiMessages,
+          max_tokens: maxTokens
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(`NanoGPT (${res.status}): ${data?.error?.message || JSON.stringify(data)}`);
+      }
+
+      const text = data?.choices?.[0]?.message?.content || '(Respuesta vacía)';
+      const usage = data?.usage;
+      return {
+        text,
+        tokens: usage ? `${usage.prompt_tokens || 0} in / ${usage.completion_tokens || 0} out` : null
+      };
+    }
+
+    // =========================================================================
+    // INTERFAZ DE USUARIO Y MANEJO DE CHAT
+    // =========================================================================
+    let isThinking = false;
+
+    async function handleSend(e) {
+      e.preventDefault();
+      if (isThinking) return;
+      const inputEl = document.getElementById('user-input');
+      const text = inputEl.value.trim();
+      if (!text) return;
+
+      inputEl.value = '';
+      inputEl.style.height = 'auto';
+
+      messages.push({ role: 'user', content: text });
+      isThinking = true;
+      saveHistory();
+      renderMessages();
+      updateTokenEstimate();
+
+      const sendBtn = document.getElementById('send-btn');
+      sendBtn.disabled = true;
+      sendBtn.textContent = '...';
+
+      const selected = document.getElementById('model-select').value;
+      const [provider, ...rest] = selected.split(':');
+      const modelId = rest.join(':');
+      const contextSlice = getContextSlice();
+      const modeTag = ecoMode
+        ? `🌱 AHORRO (enviados ${contextSlice.length}/${messages.length} msgs)`
+        : `📚 NORMAL (enviados ${contextSlice.length}/${messages.length} msgs)`;
+
+      try {
+        const result = provider === 'vertex'
+          ? await callVertexGemini(modelId, contextSlice)
+          : await callNanoGpt(modelId, contextSlice);
+
+        messages.push({
+          role: 'assistant',
+          content: result.text,
+          meta: `${modeTag} · ${modelId}${result.tokens ? ' · ' + result.tokens : ''}`
+        });
+      } catch (err) {
+        messages.push({
+          role: 'assistant',
+          content: `❌ **Error:** ${err.message}`,
+          meta: 'Error de conexión'
+        });
+      } finally {
+        isThinking = false;
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Enviar';
+        saveHistory();
+        renderMessages();
+        updateTokenEstimate();
+      }
+    }
+
+    async function compressThread() {
+      if (messages.length < 2) return;
+      const sendBtn = document.getElementById('send-btn');
+      sendBtn.disabled = true;
+      sendBtn.textContent = '🔥...';
+
+      const selected = document.getElementById('model-select').value;
+      const [provider, ...rest] = selected.split(':');
+      const modelId = rest.join(':');
+
+      const summaryPrompt = [
+        ...messages,
+        {
+          role: 'user',
+          content: 'PROTOCOLO FÉNIX DE BOLSILLO: Resume toda nuestra conversación anterior en máximo 5 viñetas ultra densas con las decisiones y datos clave para continuar desde ahí sin perder contexto.'
+        }
+      ];
+
+      try {
+        const result = provider === 'vertex'
+          ? await callVertexGemini(modelId, summaryPrompt)
+          : await callNanoGpt(modelId, summaryPrompt);
+
+        messages = [
+          {
+            role: 'assistant',
+            content: `🔥 **[Hilo Comprimido — Fénix]**\n\n${result.text}`,
+            meta: `Resumen Fénix · ${result.tokens || ''}`
+          }
+        ];
+        saveHistory();
+        renderMessages();
+        updateTokenEstimate();
+      } catch (err) {
+        alert('Error al comprimir: ' + err.message);
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Enviar';
+      }
+    }
+
+    function setEcoMode(val) {
+      ecoMode = Boolean(val);
+      localStorage.setItem(STORAGE_KEYS.ECO_MODE, String(ecoMode));
+      renderEcoBadge();
+      updateTokenEstimate();
+    }
+
+    function renderEcoBadge() {
+      const btnEco = document.getElementById('btn-mode-eco');
+      const btnDeep = document.getElementById('btn-mode-deep');
+      const info = document.getElementById('context-info');
+
+      if (ecoMode) {
+        btnEco.className = 'px-2.5 py-1 rounded-md transition flex items-center gap-1 bg-emerald-600 text-white shadow';
+        btnDeep.className = 'px-2.5 py-1 rounded-md transition flex items-center gap-1 text-slate-400 hover:text-slate-200';
+        info.className = 'text-emerald-400 font-medium';
+        info.textContent = `🌱 MODO AHORRO ACTIVO: Solo envía los últimos 2 turnos (${Math.min(messages.length, 5)} de ${messages.length} msgs en memoria)`;
+      } else {
+        btnEco.className = 'px-2.5 py-1 rounded-md transition flex items-center gap-1 text-slate-400 hover:text-slate-200';
+        btnDeep.className = 'px-2.5 py-1 rounded-md transition flex items-center gap-1 bg-rose-600 text-white shadow';
+        info.className = 'text-rose-400 font-medium';
+        info.textContent = `🔥 MODO MAX ACTIVO: Historial completo (${messages.length} msgs) y respuestas ultralargas permitidas (16k tok max).`;
+      }
+    }
+
+    function updateTokenEstimate() {
+      const slice = getContextSlice();
+      const draft = document.getElementById('user-input').value || '';
+      const sys = localStorage.getItem(STORAGE_KEYS.SYS_PROMPT) || '';
+      const totalChars = slice.reduce((acc, m) => acc + (m.content?.length || 0), 0) + draft.length + sys.length;
+      const approxTokens = Math.ceil(totalChars / 3.8);
+      const meter = document.getElementById('token-meter');
+      meter.textContent = `~${approxTokens} tok envío`;
+      meter.className = approxTokens < 1000
+        ? 'font-mono text-emerald-400'
+        : approxTokens < 4000
+          ? 'font-mono text-amber-400'
+          : 'font-mono text-rose-400';
+    }
+
+    function formatMarkdownLite(str) {
+      const escaped = str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+      return escaped
+        .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+        .replace(/`([^`]+)`/g, '<code class="bg-slate-900 px-1 py-0.5 rounded text-blue-300">$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br/>');
+    }
+
+    function renderMessages() {
+      const box = document.getElementById('chat-box');
+
+      if (messages.length === 0) {
+        box.innerHTML = `
+          <div class="text-center text-slate-500 my-12 space-y-2 max-w-md mx-auto">
+            <div class="text-2xl">⚡</div>
+            <p class="text-sm font-semibold text-slate-300">Argon Pocket — Cero Servidores</p>
+            <p class="text-xs leading-relaxed">
+              Tus credenciales viven solo en el <code class="text-slate-300">localStorage</code> de este dispositivo.
+              El token OAuth2 de Vertex AI se firma directamente en tu navegador con <code class="text-slate-300">WebCrypto RS256</code>.
+            </p>
+            <button onclick="toggleSettings()" class="mt-2 inline-block text-xs bg-blue-600/20 text-blue-400 border border-blue-500/40 px-3 py-1.5 rounded-lg">
+              🔑 Configurar vertex-sa.json o NanoGPT
+            </button>
+          </div>
+        `;
+        return;
+      }
+
+      const itemsHtml = messages.map(m => {
+        const isUser = m.role === 'user';
+        return `
+          <div class="flex ${isUser ? 'justify-end' : 'justify-start'}">
+            <div class="max-w-[88%] sm:max-w-[78%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${isUser ? 'msg-user rounded-br-sm' : 'msg-bot rounded-bl-sm'}">
+              <div>${formatMarkdownLite(m.content)}</div>
+              ${m.meta ? `<div class="text-[10px] text-slate-400 mt-1.5 pt-1 border-t border-slate-800/80 font-mono">${m.meta}</div>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      const thinkingHtml = isThinking ? `
+        <div class="flex justify-start">
+          <div class="rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-xs msg-bot text-slate-400 animate-pulse font-mono">
+            ⏳ Generando respuesta...
+          </div>
+        </div>
+      ` : '';
+
+      box.innerHTML = itemsHtml + thinkingHtml;
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function syncActiveMessages() {
+      let cur = sessions.find(s => s.id === currentSessionId);
+      if (!cur) {
+        const newId = 'chat_' + Date.now();
+        cur = { id: newId, title: 'Nueva conversación', updatedAt: Date.now(), messages: [] };
+        sessions.unshift(cur);
+        currentSessionId = newId;
+      }
+      messages = cur.messages;
+      localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION_ID, currentSessionId);
+    }
+
+    function createNewSession() {
+      // Si la sesión actual ya está vacía, solo nos quedamos en ella
+      const cur = sessions.find(s => s.id === currentSessionId);
+      if (cur && cur.messages.length === 0) {
+        renderMessages();
+        renderSessionsList();
+        return;
+      }
+      const newId = 'chat_' + Date.now();
+      const newSess = {
+        id: newId,
+        title: 'Nueva conversación',
+        updatedAt: Date.now(),
+        messages: []
+      };
+      sessions.unshift(newSess);
+      currentSessionId = newId;
+      syncActiveMessages();
+      saveHistory();
+      renderMessages();
+      renderSessionsList();
+      updateTokenEstimate();
+    }
+
+    function switchSession(id) {
+      if (isThinking) return;
+      const target = sessions.find(s => s.id === id);
+      if (!target) return;
+      currentSessionId = target.id;
+      syncActiveMessages();
+      renderEcoBadge();
+      renderMessages();
+      renderSessionsList();
+      updateTokenEstimate();
+      toggleSidebar(false);
+    }
+
+    function deleteSession(id, event) {
+      if (event) event.stopPropagation();
+      if (sessions.length <= 1) {
+        sessions[0].messages = [];
+        sessions[0].title = 'Nueva conversación';
+        sessions[0].updatedAt = Date.now();
+        syncActiveMessages();
+        saveHistory();
+        renderMessages();
+        renderSessionsList();
+        updateTokenEstimate();
+        return;
+      }
+      sessions = sessions.filter(s => s.id !== id);
+      if (currentSessionId === id) {
+        currentSessionId = sessions[0].id;
+      }
+      syncActiveMessages();
+      saveHistory();
+      renderMessages();
+      renderSessionsList();
+      updateTokenEstimate();
+    }
+
+    function toggleSidebar(forceState) {
+      const drawer = document.getElementById('sidebar-drawer');
+      const backdrop = document.getElementById('sidebar-backdrop');
+      const isOpen = !drawer.classList.contains('-translate-x-full');
+      const nextState = typeof forceState === 'boolean' ? forceState : !isOpen;
+
+      if (nextState) {
+        renderSessionsList();
+        drawer.classList.remove('-translate-x-full');
+        backdrop.classList.remove('hidden');
+      } else {
+        drawer.classList.add('-translate-x-full');
+        backdrop.classList.add('hidden');
+      }
+    }
+
+    function renderSessionsList() {
+      const listEl = document.getElementById('sessions-list');
+      const badgeEl = document.getElementById('chat-count-badge');
+      if (badgeEl) badgeEl.textContent = String(sessions.length);
+      if (!listEl) return;
+
+      listEl.innerHTML = sessions.map(s => {
+        const isActive = s.id === currentSessionId;
+        const dateStr = new Date(s.updatedAt || Date.now()).toLocaleDateString('es-ES', {
+          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+        });
+        const safeTitle = (s.title || 'Nueva conversación')
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return `
+          <div onclick="switchSession('${s.id}')" class="group cursor-pointer rounded-xl px-3 py-2.5 border transition flex items-center justify-between gap-2 ${isActive ? 'bg-blue-600/20 border-blue-500/50 text-white' : 'bg-slate-900/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/70'}">
+            <div class="min-w-0 flex-1">
+              <div class="text-xs font-semibold truncate">${safeTitle}</div>
+              <div class="text-[10px] text-slate-400 font-mono mt-0.5">${s.messages.length} msgs · ${dateStr}</div>
+            </div>
+            <button onclick="deleteSession('${s.id}', event)" title="Eliminar este chat" class="text-slate-500 hover:text-rose-400 text-xs px-1.5 py-1 rounded">
+              ✕
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function exportAllChats() {
+      const blob = new Blob([JSON.stringify(sessions, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `argon-pocket-chats-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function clearChat() {
+      if (messages.length === 0) return;
+      if (!confirm('¿Limpiar los mensajes de esta conversación actual?')) return;
+      const cur = sessions.find(s => s.id === currentSessionId);
+      if (cur) {
+        cur.messages = [];
+        cur.title = 'Nueva conversación';
+        cur.updatedAt = Date.now();
+        messages = cur.messages;
+      }
+      saveHistory();
+      renderMessages();
+      updateTokenEstimate();
+    }
+
+    function saveHistory() {
+      const cur = sessions.find(s => s.id === currentSessionId);
+      if (cur) {
+        cur.messages = messages;
+        cur.updatedAt = Date.now();
+        const firstUserMsg = messages.find(m => m.role === 'user');
+        if (firstUserMsg && (!cur.title || cur.title === 'Nueva conversación')) {
+          cur.title = firstUserMsg.content.slice(0, 40);
+        }
+      }
+      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sessions));
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(messages));
+      renderEcoBadge();
+      renderSessionsList();
+    }
+
+    function toggleSettings() {
+      const modal = document.getElementById('settings-modal');
+      modal.classList.toggle('hidden');
+    }
+
+    function loadJsonFile(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        document.getElementById('sa-json-input').value = reader.result;
+      };
+      reader.readAsText(file);
+    }
+
+    function saveSettings() {
+      localStorage.setItem(STORAGE_KEYS.SA_JSON, document.getElementById('sa-json-input').value.trim());
+      localStorage.setItem(STORAGE_KEYS.VERTEX_LOC, document.getElementById('vertex-location').value.trim() || 'global');
+      localStorage.setItem(STORAGE_KEYS.SYS_PROMPT, document.getElementById('sys-prompt-input').value.trim());
+      localStorage.setItem(STORAGE_KEYS.NANOGPT_KEY, document.getElementById('nanogpt-key-input').value.trim());
+      cachedVertexToken = null;
+      cachedVertexExpiry = 0;
+      updateTokenEstimate();
+      toggleSettings();
+    }
+
+    async function testVertexAuth() {
+      const statusEl = document.getElementById('settings-status');
+      statusEl.classList.remove('hidden');
+      statusEl.className = 'text-xs text-amber-400 font-mono';
+      statusEl.textContent = 'Firmando JWT RS256 en el navegador y pidiendo token a Google...';
+
+      localStorage.setItem(STORAGE_KEYS.SA_JSON, document.getElementById('sa-json-input').value.trim());
+      cachedVertexToken = null;
+
+      try {
+        await getVertexAccessToken();
+        const sa = JSON.parse(localStorage.getItem(STORAGE_KEYS.SA_JSON) || '{}');
+        statusEl.className = 'text-xs text-emerald-400 font-mono';
+        statusEl.textContent = `✅ Conectado a Google Cloud (proyecto: ${sa.project_id || 'OK'}). Token OAuth2 obtenido sin servidor.`;
+      } catch (err) {
+        statusEl.className = 'text-xs text-rose-400 font-mono';
+        statusEl.textContent = `❌ ${err.message}`;
+      }
+    }
+
+    function autoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+    }
+
+    function handleKeydown(e) {
+      if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 640) {
+        e.preventDefault();
+        document.getElementById('chat-form').requestSubmit();
+      }
+    }
+
+    initApp();
+  </script>
+</body>
+</html>
