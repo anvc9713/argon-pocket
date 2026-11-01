@@ -131,13 +131,23 @@
 
   <!-- INPUT BAR -->
   <footer class="bg-[#0f172a] border-t border-slate-800 p-2.5 shrink-0">
+    <!-- Vista previa de fotos adjuntas antes de enviar -->
+    <div id="attachment-preview" class="hidden max-w-4xl mx-auto mb-2 flex items-center gap-2 overflow-x-auto pb-1"></div>
+
     <form id="chat-form" onsubmit="handleSend(event)" class="flex items-end gap-2 max-w-4xl mx-auto">
+      <!-- Botón Adjuntar Foto / Cámara -->
+      <label title="Subir foto o usar cámara" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3 py-2.5 rounded-xl cursor-pointer transition shrink-0 flex items-center justify-center text-base">
+        📷
+        <input id="image-input" type="file" accept="image/*" multiple onchange="handleImageSelect(event)" class="hidden" />
+      </label>
+
       <textarea
         id="user-input"
         rows="1"
-        placeholder="Escribe tu mensaje... (0 tokens de herramientas)"
+        placeholder="Escribe o envía una foto 📷..."
         oninput="autoResize(this); updateTokenEstimate();"
         onkeydown="handleKeydown(event)"
+        onpaste="handlePaste(event)"
         class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none max-h-36"
       ></textarea>
       <button
@@ -450,10 +460,30 @@
 
       const url = `${host}/v1/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(modelId)}:generateContent`;
 
-      const contents = contextMessages.map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }]
-      }));
+      const contents = contextMessages.map((m, idx) => {
+        const parts = [];
+        // En Modo Ahorro solo enviamos imágenes del último turno para no gastar tokens re-enviando fotos viejas
+        const includeImages = !ecoMode || idx >= contextMessages.length - 2;
+        if (includeImages && Array.isArray(m.images)) {
+          for (const img of m.images) {
+            parts.push({
+              inlineData: {
+                mimeType: img.mimeType || 'image/jpeg',
+                data: img.base64
+              }
+            });
+          }
+        }
+        if (m.content) {
+          parts.push({ text: m.content });
+        } else if (parts.length > 0) {
+          parts.push({ text: 'Analiza esta imagen.' });
+        }
+        return {
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts
+        };
+      });
 
       const payload = {
         contents,
@@ -504,9 +534,22 @@
 
       const apiMessages = [];
       if (sysPrompt) apiMessages.push({ role: 'system', content: sysPrompt });
-      for (const m of contextMessages) {
-        apiMessages.push({ role: m.role, content: m.content });
-      }
+      contextMessages.forEach((m, idx) => {
+        const includeImages = !ecoMode || idx >= contextMessages.length - 2;
+        if (includeImages && Array.isArray(m.images) && m.images.length > 0) {
+          const contentArr = [];
+          if (m.content) contentArr.push({ type: 'text', text: m.content });
+          for (const img of m.images) {
+            contentArr.push({
+              type: 'image_url',
+              image_url: { url: `data:${img.mimeType || 'image/jpeg'};base64,${img.base64}` }
+            });
+          }
+          apiMessages.push({ role: m.role, content: contentArr });
+        } else {
+          apiMessages.push({ role: m.role, content: m.content || '(Imagen adjunta)' });
+        }
+      });
 
       const res = await fetch('https://api.nano-gpt.com/api/v1/chat/completions', {
         method: 'POST',
@@ -535,21 +578,131 @@
     }
 
     // =========================================================================
-    // INTERFAZ DE USUARIO Y MANEJO DE CHAT
+    // INTERFAZ DE USUARIO, FOTOS Y MANEJO DE CHAT
     // =========================================================================
     let isThinking = false;
+    let pendingAttachments = []; // [{ mimeType, base64, dataUrl }]
+
+    function compressImageFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+        reader.onload = () => {
+          const img = new Image();
+          img.onerror = () => reject(new Error('Formato de imagen inválido.'));
+          img.onload = () => {
+            const MAX_SIDE = 1280;
+            let w = img.width;
+            let h = img.height;
+            if (w > MAX_SIDE || h > MAX_SIDE) {
+              if (w > h) {
+                h = Math.round((h * MAX_SIDE) / w);
+                w = MAX_SIDE;
+              } else {
+                w = Math.round((w * MAX_SIDE) / h);
+                h = MAX_SIDE;
+              }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+            const base64 = dataUrl.split(',')[1];
+            resolve({ mimeType: 'image/jpeg', base64, dataUrl });
+          };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function handleImageSelect(event) {
+      const files = Array.from(event.target.files || []);
+      for (const f of files) {
+        if (!f.type.startsWith('image/')) continue;
+        try {
+          const compressed = await compressImageFile(f);
+          pendingAttachments.push(compressed);
+        } catch (err) {
+          alert(err.message);
+        }
+      }
+      event.target.value = '';
+      renderAttachmentPreview();
+      updateTokenEstimate();
+    }
+
+    async function handlePaste(event) {
+      const items = Array.from(event.clipboardData?.items || []);
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          event.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            try {
+              const compressed = await compressImageFile(file);
+              pendingAttachments.push(compressed);
+              renderAttachmentPreview();
+              updateTokenEstimate();
+            } catch (err) {
+              alert(err.message);
+            }
+          }
+        }
+      }
+    }
+
+    function removeAttachment(idx) {
+      pendingAttachments.splice(idx, 1);
+      renderAttachmentPreview();
+      updateTokenEstimate();
+    }
+
+    function renderAttachmentPreview() {
+      const box = document.getElementById('attachment-preview');
+      if (!box) return;
+      if (pendingAttachments.length === 0) {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+        return;
+      }
+      box.classList.remove('hidden');
+      box.innerHTML = pendingAttachments.map((att, i) => `
+        <div class="relative shrink-0 group">
+          <img src="${att.dataUrl}" class="h-16 w-16 object-cover rounded-xl border border-blue-500/60 shadow" />
+          <button type="button" onclick="removeAttachment(${i})" class="absolute -top-1.5 -right-1.5 bg-rose-600 text-white rounded-full w-5 h-5 text-[11px] flex items-center justify-center shadow font-bold">
+            ✕
+          </button>
+        </div>
+      `).join('');
+    }
 
     async function handleSend(e) {
       e.preventDefault();
       if (isThinking) return;
       const inputEl = document.getElementById('user-input');
       const text = inputEl.value.trim();
-      if (!text) return;
+      if (!text && pendingAttachments.length === 0) return;
 
       inputEl.value = '';
       inputEl.style.height = 'auto';
 
-      messages.push({ role: 'user', content: text });
+      const attachedImages = pendingAttachments.map(a => ({
+        mimeType: a.mimeType,
+        base64: a.base64
+      }));
+      pendingAttachments = [];
+      renderAttachmentPreview();
+
+      const newUserMsg = {
+        role: 'user',
+        content: text || '📷 (Imagen adjunta)',
+        ...(attachedImages.length > 0 ? { images: attachedImages } : {})
+      };
+
+      messages.push(newUserMsg);
       isThinking = true;
       saveHistory();
       renderMessages();
@@ -664,14 +817,18 @@
       const draft = document.getElementById('user-input').value || '';
       const sys = localStorage.getItem(STORAGE_KEYS.SYS_PROMPT) || '';
       const totalChars = slice.reduce((acc, m) => acc + (m.content?.length || 0), 0) + draft.length + sys.length;
-      const approxTokens = Math.ceil(totalChars / 3.8);
+      const imgCount = pendingAttachments.length + slice.reduce((acc, m, idx) => {
+        const includeImages = !ecoMode || idx >= slice.length - 1;
+        return acc + (includeImages && Array.isArray(m.images) ? m.images.length : 0);
+      }, 0);
+      const approxTokens = Math.ceil(totalChars / 3.8) + (imgCount * 258);
       const meter = document.getElementById('token-meter');
-      meter.textContent = `~${approxTokens} tok envío`;
+      meter.textContent = `~${approxTokens} tok${imgCount > 0 ? ` (${imgCount}📷)` : ''}`;
       meter.className = approxTokens < 1000
-        ? 'font-mono text-emerald-400'
+        ? 'font-mono text-[11px] text-emerald-400 shrink-0'
         : approxTokens < 4000
-          ? 'font-mono text-amber-400'
-          : 'font-mono text-rose-400';
+          ? 'font-mono text-[11px] text-amber-400 shrink-0'
+          : 'font-mono text-[11px] text-rose-400 shrink-0';
     }
 
     function formatMarkdownLite(str) {
